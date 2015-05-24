@@ -1,0 +1,121 @@
+---
+title: "Practical Machine Learning Project"
+output: html_document
+---
+
+### Project Brackground
+
+In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+### Project Objective
+
+Using the data provided, predict the manner in which they did the exercise. This is the "classe" variable in the training set.
+
+### Exploratory Data Analysis and Data Transformation
+
+The focus of exploratory data analysis is to analyse our given dataset to gain a "feel" for the data. This allows us to maximize insight into a data set, examine data quality, and aids in determining which variables are relevant for modeling.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#initialisation
+library(caret)
+library(Hmisc)
+library(taRifx)
+library(randomForest)
+library(verification)
+set.seed(111)
+```
+
+```{r}
+df_raw <- read.csv("pml-training.csv")
+df <- df_raw
+head(df)
+```
+
+After viewing the data, the observation is that some data cleaning is required. It have been found that there are NA values. There are also irrelavant value like #DIV/0! in column kurtosis_roll_belt.
+
+The code below details the list of data transformation done to the original dataset.
+
+1) Drops cvtd_timestamp as it is already represented in raw_timestamp part 1
+2) Replace na with 0
+3) Replace invalid and missing values to 0
+4) Drop column that have no values
+4) Remove highly correlated values (cor > 0.9). This would reduce the data redundancy of the dataset
+
+
+```{r, warning=FALSE}
+# Drop column
+df <- df[,-c(5)]
+# Replace Na
+df[is.na(df)] <- 0
+# invalid and missing values
+df[, 11:158] <- sapply(df[, 11:158], as.character)
+df[df == ""] <- 0
+df[df == "#DIV/0!"] <- 0
+df[, 11:158] <- sapply(df[, 11:158], as.numeric)
+# drop column that have no values
+df_num <- df[,-c(2,5,159)]
+df_char <- df[,c(2,5,159)]
+df_num <- df_num[,colSums(df_num^2) !=0]
+# remove highly correlated values
+df_cor <- cor(df_num)
+highCorr<- findCorrelation(df_cor, 0.8)
+df_num <- df_num[,-highCorr]
+
+df <- cbind(df_num, df_char)
+df <- df[,-c(1)]
+
+#remove unrequired var
+rm(df_char, df_cor, df_num)
+```
+
+After the transformation, the feature selection for model training have reduced from 158 to 99 (excluding target and identifier X)
+
+### Data Modeling 
+
+Training using Random Forest with 5-fold cross validation.
+
+```{r}
+#randomise dataset
+df2 <- df
+df <- df[sample(nrow(df)),]
+
+k <- 5
+n <- floor(nrow(df)/k)
+ err.vect <- data.frame(1,5)
+
+for(i in 1:k) {
+        #start of subset
+        s1 <- ((i-1)*n+1)
+        #end of subset
+        s2 <- (i*n)
+        subset <- s1:s2
+        
+        df.train =df[-subset,]
+        df.test =df[subset,]
+        
+        fit <- randomForest(x=df.train[,-100],y=as.factor(df.train[,100]), ntree=100)
+        
+        prediction <- predict(fit, newdata = df.test[,-100],type = 'class')
+        
+        tab <- table(prediction,df.test[,100])
+        err.vect[i] <- 1-sum(diag(tab))/sum(tab)
+        print(paste("Misclassification rate for fold ",i," : ",err.vect[i]))
+        
+}
+        print(paste("Average Misclassification rate:",mean(err.vect[1,])))
+        
+```
+
+The value shows that the model is very reliable in predicting the different manner in which they excerise given the data provided. Misclassification rate is used to determine the out of sample error rate and based on 5 fold cross validation, the average error rate is the mean of misclassification rate.
+
+### Conclusion
+A prediction given the 20 test cases will be provided based on the model of the random forest with the parameters as above. 
+
+The following details the variable importance of the dataset , derived using the random forest model.
+```{r}
+varImp(fit)
+```
+
+Frankly speaking, the model is not realistic given it is to be used in an actual setting. Variables like timestamp (a high important variable in the random forest model) would be unlikely be related to the manner in which a person exercise. Data from more people (>6 people) should be collected to be more realistic.  
+
+
